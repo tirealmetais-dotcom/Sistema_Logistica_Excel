@@ -663,7 +663,7 @@ class LogicApp:
                     f.write("0")
                 self.btn_save_text.set(self.get_texto_botao_salvar())
             except:
-                pass
+                #pass
 
 
 if __name__ == "__main__":
