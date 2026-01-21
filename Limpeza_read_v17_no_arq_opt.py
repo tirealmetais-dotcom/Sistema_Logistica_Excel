@@ -30,7 +30,7 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), "logistica_seq_config.txt")
 class LogicApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Organizador Logístico Pro v23.17 (Lista Cargas Fix)")
+        self.root.title("Organizador Logístico Pro v23.16 (Lista Cargas)")
         self.root.geometry("1100x750")
         self.root.configure(bg=COLORS["secondary"])
 
@@ -60,7 +60,7 @@ class LogicApp:
         header_frame.pack_propagate(False)
         tk.Label(header_frame, text="ORGANIZADOR DE TRANSPORTES", bg=COLORS["primary"], fg=COLORS["text_light"],
                  font=("Segoe UI", 18, "bold")).pack(side="left", padx=20, pady=20)
-        tk.Label(header_frame, text="v23.17 Lista Cargas", bg=COLORS["primary"], fg="#95A5A6",
+        tk.Label(header_frame, text="v23.16 Lista Cargas", bg=COLORS["primary"], fg="#95A5A6",
                  font=("Segoe UI", 10)).pack(side="right", padx=20, pady=25)
 
         # --- ÁREA DE CONTROLE ---
@@ -141,7 +141,8 @@ class LogicApp:
         global pd
         try:
             self.root.after(0, lambda: self.lbl_status.config(text=" Carregando núcleo de dados..."))
-            import pandas as pd
+            import pandas as pandas_lib  # Importa para variavel local
+            pd = pandas_lib  # Atribui a global
             self.libs_carregadas = True
             self.root.after(0, lambda: self.lbl_status.config(text=" Pronto."))
         except Exception as e:
@@ -155,26 +156,32 @@ class LogicApp:
 
     def ler_arquivo_inteligente(self):
         try:
-            # Tenta ler como Excel primeiro se a extensão permitir
-            if self.file_path.lower().endswith(('.xls', '.xlsx')):
+            try:
+                xls = pd.ExcelFile(self.file_path)
+            except:
+                return pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python')
+            if len(xls.sheet_names) >= 4:
                 try:
-                    return pd.read_excel(self.file_path)
+                    df = pd.read_excel(self.file_path, sheet_name=3)
+                    colunas_str = " ".join([str(c).upper() for c in df.columns])
+                    if "CTRC" in colunas_str or "N.FISCAL" in colunas_str or "NFISCAL" in colunas_str: return df
                 except:
                     pass
-
-                    # CSV com detecção de engine
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(self.file_path, sheet_name=sheet)
+                colunas_str = " ".join([str(c).upper() for c in df.columns])
+                if "CTRC" in colunas_str and ("N.FISCAL" in colunas_str or "NFISCAL" in colunas_str): return df
+            return pd.read_excel(self.file_path, sheet_name=0)
+        except Exception as e:
             try:
                 return pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python')
             except:
-                return pd.read_csv(self.file_path, sep=None, encoding='utf-8', engine='python')
-
-        except Exception as e:
-            raise Exception(f"Erro Crítico na leitura: {e}")
+                raise Exception(f"Erro Crítico na leitura: {e}")
 
     def identificar_layout(self, path):
         nome_arq = os.path.basename(path).upper()
 
-        # --- Prioridade: Lista Cargas pelo nome ---
+        # >>> NOVO: Identificação por nome do arquivo <<<
         if "LISTA" in nome_arq and "CARGAS" in nome_arq: return "LISTA_CARGAS"
 
         if "EXCELLENCE" in nome_arq: return "TXT_EXCELLENCE"
@@ -187,11 +194,21 @@ class LogicApp:
 
         content_upper = ""
         try:
-            try:
-                with open(path, 'r', encoding='latin1', errors='ignore') as f:
-                    content_upper = f.read(5000).upper()
-            except:
-                pass
+            if path.lower().endswith(('.xls', '.xlsx')):
+                try:
+                    xls = pd.ExcelFile(path)
+                    for sheet in xls.sheet_names[:3]:
+                        df_temp = pd.read_excel(xls, sheet_name=sheet, nrows=20, header=None)
+                        content_upper += df_temp.to_string().upper() + " "
+                except:
+                    pass
+
+            if not content_upper:
+                try:
+                    with open(path, 'r', encoding='latin1', errors='ignore') as f:
+                        content_upper = f.read(5000).upper()
+                except:
+                    pass
 
             if not content_upper: return "ERRO_LEITURA"
 
@@ -203,7 +220,7 @@ class LogicApp:
 
             tem_ctrc = "CTRC" in content_upper
             tem_nf = (
-                        "N.FISCAL" in content_upper or "NFISCAL" in content_upper or "NOTAFISCAL" in content_upper or "NR_NFE" in content_upper)
+                    "N.FISCAL" in content_upper or "NFISCAL" in content_upper or "NOTAFISCAL" in content_upper or "NR_NFE" in content_upper)
 
             if "DON" in content_upper and tem_nf: return "LT"
 
@@ -247,8 +264,8 @@ class LogicApp:
             self.configurar_status("AGE / MH Logística", "📝", "#04b0e4")
         elif self.layout_detectado == "TXT_EXCELLENCE":
             self.configurar_status("Excellence (Texto)", "📄", "#2C3E50")
-        elif self.layout_detectado == "LISTA_CARGAS":
-            self.configurar_status("Lista de Cargas (Scanner)", "🕵️", COLORS["accent_teal"])
+        elif self.layout_detectado == "LISTA_CARGAS":  # >>> NOVO STATUS
+            self.configurar_status("Lista de Cargas", "📋", COLORS["accent_teal"])
         else:
             self.lbl_detect_text.config(text=f"Desconhecido ({self.layout_detectado})", fg="red")
             self.lbl_detect_icon.config(text="❌", fg="red")
@@ -278,7 +295,7 @@ class LogicApp:
                 df_limpo = self._limpar_mh_smart()
             elif self.layout_detectado == "TXT_EXCELLENCE":
                 df_limpo = self._limpar_txt_excellence()
-            elif self.layout_detectado == "LISTA_CARGAS":
+            elif self.layout_detectado == "LISTA_CARGAS":  # >>> NOVA CHAMADA
                 df_limpo = self._limpar_lista_cargas()
 
             if df_limpo is not None and not df_limpo.empty:
@@ -286,7 +303,9 @@ class LogicApp:
                 df_limpo.insert(0, "ITEM", range(1, len(df_limpo) + 1))
                 self.df_preview = df_limpo
                 self.atualizar_tabela(df_limpo)
+
                 self.btn_save_text.set(self.get_texto_botao_salvar())
+
                 self.btn_save.config(state="normal", bg=COLORS["accent_green"])
                 self.lbl_status.config(text=f"Sucesso! {len(df_limpo)} linhas prontas.")
                 messagebox.showinfo("Processado", f"{len(df_limpo)} linhas extraídas com sucesso.")
@@ -318,88 +337,63 @@ class LogicApp:
 
     def fmt_dt(self, val):
         if pd.isna(val) or str(val).strip() == '': return ""
-        val = str(val).strip()
-        if " " in val: val = val.split(" ")[0]
-
-        for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y', '%d.%m.%Y'):
-            try:
-                dt = pd.to_datetime(val, format=fmt, dayfirst=True, errors='coerce')
-                if pd.notna(dt): return dt.strftime("%d/%m/%Y 00:00")
-            except:
-                pass
-
         try:
-            dt = pd.to_datetime(val, dayfirst=True, errors='coerce')
-            if pd.notna(dt): return dt.strftime("%d/%m/%Y 00:00")
+            # Tenta múltiplos formatos comuns em sistemas brasileiros
+            s = str(val).strip()
+            # Remove horas se estiver no formato Excel 'YYYY-MM-DD HH:MM:SS'
+            if " " in s: s = s.split(" ")[0]
+
+            for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"):
+                try:
+                    dt = datetime.strptime(s, fmt)
+                    return dt.strftime("%d/%m/%Y 00:00")
+                except:
+                    continue
+            return ""
         except:
-            pass
+            return ""
 
-        return ""
-
-    # --- FUNÇÃO ROBUSTA PARA LISTA DE CARGAS ---
+    # >>> NOVA FUNÇÃO DE LIMPEZA PARA O SEU ARQUIVO <<<
     def _limpar_lista_cargas(self):
-        # 1. Lê o arquivo "cru" sem cabeçalho para caçar onde começa a tabela
         try:
-            df_raw = pd.read_csv(self.file_path, sep=None, engine='python', header=None, encoding='latin1', nrows=30)
+            # Tenta ler como CSV flexível (detecta separador automaticamente)
+            df = pd.read_csv(self.file_path, sep=None, engine='python', encoding='latin1')
         except:
+            # Se falhar, tenta ler como Excel padrão
             try:
-                df_raw = pd.read_excel(self.file_path, header=None, nrows=30)
-            except:
-                # Última tentativa: ler tudo
-                df_raw = self.ler_arquivo_inteligente()
+                df = pd.read_excel(self.file_path)
+            except Exception as e:
+                raise Exception(f"Não foi possível ler o arquivo Lista Cargas: {e}")
 
-        # 2. Scanner de Cabeçalho: Procura a linha que tem palavras chaves
-        header_row_idx = None
-        keywords = ["NOTA", "NRO", "DOC", "PREVIS", "ENTREGA", "CLIENTE"]
+        # Padroniza nomes das colunas (tudo maiúsculo e sem espaços nas pontas)
+        df.columns = [str(c).upper().strip() for c in df.columns]
 
-        for idx, row in df_raw.iterrows():
-            # Converte a linha toda para texto maiúsculo
-            row_str = " ".join([str(val).upper() for val in row.values])
+        # Identifica colunas chaves baseadas em palavras comuns
+        col_nota = next((c for c in df.columns if any(x in c for x in ['NOTA', 'NF', 'DOCUMENTO', 'NR_NOTA'])), None)
+        col_prev = next((c for c in df.columns if 'PREV' in c), None)
+        # Pega coluna de entrega que NÃO seja a previsão
+        col_ent = next((c for c in df.columns if 'ENTREGA' in c and 'PREV' not in c), None)
 
-            # Se encontrar pelo menos 2 palavras chave na mesma linha, é o cabeçalho
-            matches = sum(1 for k in keywords if k in row_str)
-            if matches >= 2:
-                header_row_idx = idx
-                break
+        if not col_ent:  # Tenta procurar por DATA_REALIZADA ou BAIXA se não achar ENTREGA
+            col_ent = next((c for c in df.columns if any(x in c for x in ['REALIZ', 'BAIXA'])), None)
 
-        if header_row_idx is None:
-            # Se não achou por scan, assume a primeira linha
-            header_row_idx = 0
-
-        # 3. Recarrega o arquivo pulando as linhas inúteis (metadados, logos)
-        try:
-            if self.file_path.lower().endswith(('.xls', '.xlsx')):
-                df = pd.read_excel(self.file_path, skiprows=header_row_idx)
-            else:
-                df = pd.read_csv(self.file_path, sep=None, engine='python', encoding='latin1', skiprows=header_row_idx)
-        except:
-            df = pd.read_csv(self.file_path, sep=None, engine='python', encoding='utf-8', skiprows=header_row_idx)
-
-        # 4. Normaliza colunas
-        df.columns = df.columns.astype(str).str.upper().str.strip()
-
-        # 5. Mapeia as colunas (Flexibilidade total)
-        col_doc = next((c for c in df.columns if any(x in c for x in ["NOTA", "DOC", "NRO", "NUMERO", "CT-E"])), None)
-        col_prev = next((c for c in df.columns if "PREV" in c), None)
-        col_ent = next(
-            (c for c in df.columns if any(x in c for x in ["ENTREGA", "REALIZADA", "BAIXA", "DATA_ENT", "DT."])), None)
-
-        if not col_doc:
-            col_list = "\n".join(list(df.columns))
-            raise Exception(f"Não encontrei a coluna de Nota Fiscal.\nColunas detectadas: \n{col_list}")
+        if not col_nota:
+            raise Exception("Não encontrei a coluna de Nota Fiscal/Documento no arquivo.")
 
         df_final = pd.DataFrame()
 
-        def clean_doc(val):
+        def clean_nf_generic(val):
             s = str(val).strip()
             if not s or s.lower() == 'nan': return ""
-            # Pega apenas números, remove .0
             if s.endswith('.0'): s = s[:-2]
+            # Remove tudo que não for dígito
             s_numeros = re.sub(r'\D', '', s)
-            if s_numeros: return s_numeros.zfill(6)[-6:]
+            if s_numeros:
+                return s_numeros.zfill(6)[-6:]  # Pega os ultimos 6 digitos
             return ""
 
-        df_final["Nr. Doc."] = df[col_doc].apply(clean_doc)
+        # Extração
+        df_final["Nr. Doc."] = df[col_nota].apply(clean_nf_generic)
 
         if col_prev:
             df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt)
@@ -407,26 +401,27 @@ class LogicApp:
             df_final["Data de Previsão de Entrega"] = ""
 
         if col_ent:
-            # Se a coluna de entrega e previsão forem a mesma (raro, mas acontece), cuida aqui
-            if col_ent == col_prev:
-                df_final["Data Entrega"] = ""
-            else:
-                df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt)
+            df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt)
         else:
             df_final["Data Entrega"] = ""
 
-        # Remove linhas sem nota fiscal
-        df_final = df_final[df_final["Nr. Doc."].astype(bool)]
+        # Filtros de validade
+        df_final = df_final[df_final["Nr. Doc."].astype(bool)]  # Remove vazios
+        df_final = df_final[df_final["Nr. Doc."] != "000000"]
 
         return df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]]
 
     def _limpar_mh_smart(self):
         df = self.ler_arquivo_inteligente()
+
+        # 1. Leitura Robusta: Se falhar ou vier tudo junto, tenta detectar separador (; ou ,) automaticamente
         if len(df.columns) < 2:
             try:
-                df = pd.read_csv(self.file_path, sep=';', encoding='latin1', engine='python')
+                df = pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python')
             except:
                 pass
+
+        # 2. Busca de Cabeçalho (Mantida para compatibilidade)
         header_idx = None
         for i, row in df.head(30).iterrows():
             row_str = " ".join([str(val).upper() for val in row.values])
@@ -434,20 +429,27 @@ class LogicApp:
             if any(k in row_str for k in keywords_nf):
                 header_idx = i
                 break
+
         if header_idx is not None:
             df.columns = df.iloc[header_idx]
             df = df.iloc[header_idx + 1:].reset_index(drop=True)
+
         df.columns = df.columns.astype(str).str.upper().str.strip()
+
+        # 3. Identificação de Colunas
         col_nf = next(
             (c for c in df.columns if "N.FISCAL" in c or "NFISCAL" in c or "NOTA" in c or "DOC" in c or "NFE" in c),
             None)
         col_prev = next((c for c in df.columns if "PREV" in c), None)
         col_data = next((c for c in df.columns if "ENTREGA" in c and "PREV" not in c), None)
+
         if not col_data:
             col_data = next((c for c in df.columns if "DATA" in c and ("BAIXA" in c or "REALIZ" in c)), None)
+
         if not col_nf:
             cols_encontradas = ", ".join(list(df.columns))
             raise Exception(f"Coluna de Nota Fiscal não encontrada.\nColunas no arquivo: [{cols_encontradas}]")
+
         df_final = pd.DataFrame()
 
         def clean_nf(val):
@@ -459,9 +461,24 @@ class LogicApp:
                 return s_numeros.zfill(6)[-6:]
             return ""
 
+        # 4. NOVA FUNÇÃO DE DATA: Suporta ano com 2 dígitos (ex: 27/11/25 -> 27/11/2025)
+        def local_fmt_dt(val):
+            if pd.isna(val) or str(val).strip() == '': return ""
+            try:
+                # O pandas é mais inteligente para detectar formatos variados
+                dt = pd.to_datetime(val, dayfirst=True, errors='coerce')
+                if pd.notna(dt):
+                    return dt.strftime("%d/%m/%Y 00:00")
+                return ""
+            except:
+                return ""
+
         df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
-        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt) if col_prev else ""
-        df_final["Data Entrega"] = df[col_data].apply(self.fmt_dt) if col_data else ""
+
+        # Usa a nova função local_fmt_dt
+        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(local_fmt_dt) if col_prev else ""
+        df_final["Data Entrega"] = df[col_data].apply(local_fmt_dt) if col_data else ""
+
         df_final = df_final[df_final["Nr. Doc."].astype(bool)]
         df_final = df_final[df_final["Nr. Doc."] != "000000"]
         return df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]]
@@ -619,6 +636,7 @@ class LogicApp:
                                   quoting=csv.QUOTE_ALL)
 
             self.salvar_numero_atual(numero)
+
             self.btn_save_text.set(self.get_texto_botao_salvar())
 
             self.lbl_status.config(text=f"Salvo: {nome_arq}")
