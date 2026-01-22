@@ -30,7 +30,7 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), "logistica_seq_config.txt")
 class LogicApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Organizador Logístico Pro v23.18 (Lista Cargas)")
+        self.root.title("Organizador Logístico Pro v23.16")
         self.root.geometry("1100x750")
         self.root.configure(bg=COLORS["secondary"])
 
