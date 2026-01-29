@@ -225,6 +225,7 @@ class LogicApp:
             if "DON" in content_upper and tem_nf: return "LT"
 
             tem_datas = "PREV" in content_upper and "ENTR" in content_upper
+            tem_nf = ("NOTA FISCAL" in content_upper)
             if (tem_ctrc and tem_nf) or (tem_datas and tem_nf): return "AGE"
 
             return "DESCONHECIDO"
@@ -369,7 +370,7 @@ class LogicApp:
         df.columns = [str(c).upper().strip() for c in df.columns]
 
         # Identifica colunas chaves baseadas em palavras comuns
-        col_nota = next((c for c in df.columns if any(x in c for x in ['NOTA', 'NF', 'DOCUMENTO', 'NR_NOTA'])), None)
+        col_nota = next((c for c in df.columns if any(x in c for x in ['NOTA', 'NOTA_FISCAL', 'NF', 'DOCUMENTO', 'NR_NOTA'])), None)
         col_prev = next((c for c in df.columns if 'PREV' in c), None)
         # Pega coluna de entrega que NÃO seja a previsão
         col_ent = next((c for c in df.columns if 'ENTREGA' in c and 'PREV' not in c), None)
@@ -414,19 +415,25 @@ class LogicApp:
     def _limpar_mh_smart(self):
         df = self.ler_arquivo_inteligente()
 
-        # 1. Leitura Robusta: Se falhar ou vier tudo junto, tenta detectar separador (; ou ,) automaticamente
+        # 1. Leitura Robusta
         if len(df.columns) < 2:
             try:
                 df = pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python')
             except:
                 pass
 
-        # 2. Busca de Cabeçalho (Mantida para compatibilidade)
+        # 2. Busca de Cabeçalho Inteligente
         header_idx = None
+        # ADICIONEI "NOTAFISCAL" (junto) e "CTRC" nesta lista para garantir que ele ache a linha certa
+        keywords_header = [
+            "N.FISCAL", "NFISCAL", "NOTA FISCAL", "NR.NOTA", "N. NOTA",
+            "NR_NFE", "NOTA FISCAL", "DOC.", "DOCUMENTO",
+            "NOTAFISCAL", "CTRC"
+        ]
+
         for i, row in df.head(30).iterrows():
             row_str = " ".join([str(val).upper() for val in row.values])
-            keywords_nf = ["N.FISCAL", "NFISCAL", "NOTA FISCAL", "NR.NOTA", "N. NOTA", "NR_NFE", "NR_NFE"]
-            if any(k in row_str for k in keywords_nf):
+            if any(k in row_str for k in keywords_header):
                 header_idx = i
                 break
 
@@ -434,13 +441,28 @@ class LogicApp:
             df.columns = df.iloc[header_idx]
             df = df.iloc[header_idx + 1:].reset_index(drop=True)
 
-        df.columns = df.columns.astype(str).str.upper().str.strip()
+        # LIMPEZA EXTRA DOS NOMES DAS COLUNAS (Remove aspas e sujeira do inicio do arquivo)
+        df.columns = [str(c).upper().strip().replace('"', '').replace("'", "") for c in df.columns]
 
         # 3. Identificação de Colunas
+        # PRIORIDADE 1: Palavras fortes (incluindo agora NOTAFISCAL tudo junto)
         col_nf = next(
-            (c for c in df.columns if "N.FISCAL" in c or "NFISCAL" in c or "NOTA" in c or "DOC" in c or "NFE" in c),
-            None)
+            (c for c in df.columns if any(x in c for x in [
+                "N.FISCAL", "NFISCAL", "NOTA FISCAL", "NR.NOTA",
+                "N. NOTA", "NR_NFE", "NFE", "NOTAFISCAL"
+            ])),
+            None
+        )
+
+        # PRIORIDADE 2: Se não achou nota fiscal explicita, tenta achar por Documento
+        if not col_nf:
+            col_nf = next(
+                (c for c in df.columns if "DOC" in c or "DOCUMENTO" in c),
+                None
+            )
+
         col_prev = next((c for c in df.columns if "PREV" in c), None)
+        # Pega entrega, mas garante que não é a de previsão
         col_data = next((c for c in df.columns if "ENTREGA" in c and "PREV" not in c), None)
 
         if not col_data:
@@ -448,6 +470,7 @@ class LogicApp:
 
         if not col_nf:
             cols_encontradas = ", ".join(list(df.columns))
+            # Mostra as colunas no erro para ajudar a diagnosticar
             raise Exception(f"Coluna de Nota Fiscal não encontrada.\nColunas no arquivo: [{cols_encontradas}]")
 
         df_final = pd.DataFrame()
@@ -461,11 +484,9 @@ class LogicApp:
                 return s_numeros.zfill(6)[-6:]
             return ""
 
-        # 4. NOVA FUNÇÃO DE DATA: Suporta ano com 2 dígitos (ex: 27/11/25 -> 27/11/2025)
         def local_fmt_dt(val):
             if pd.isna(val) or str(val).strip() == '': return ""
             try:
-                # O pandas é mais inteligente para detectar formatos variados
                 dt = pd.to_datetime(val, dayfirst=True, errors='coerce')
                 if pd.notna(dt):
                     return dt.strftime("%d/%m/%Y 00:00")
@@ -474,8 +495,6 @@ class LogicApp:
                 return ""
 
         df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
-
-        # Usa a nova função local_fmt_dt
         df_final["Data de Previsão de Entrega"] = df[col_prev].apply(local_fmt_dt) if col_prev else ""
         df_final["Data Entrega"] = df[col_data].apply(local_fmt_dt) if col_data else ""
 
