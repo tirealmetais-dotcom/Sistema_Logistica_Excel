@@ -60,7 +60,7 @@ class LogicApp:
         header_frame.pack_propagate(False)
         tk.Label(header_frame, text="ORGANIZADOR DE TRANSPORTES", bg=COLORS["primary"], fg=COLORS["text_light"],
                  font=("Segoe UI", 18, "bold")).pack(side="left", padx=20, pady=20)
-        tk.Label(header_frame, text="v23.16 Lista Cargas", bg=COLORS["primary"], fg="#95A5A6",
+        tk.Label(header_frame, text="v23.20 Lista Cargas", bg=COLORS["primary"], fg="#95A5A6",
                  font=("Segoe UI", 10)).pack(side="right", padx=20, pady=25)
 
         # --- ÁREA DE CONTROLE ---
