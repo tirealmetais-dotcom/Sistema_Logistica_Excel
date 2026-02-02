@@ -432,7 +432,6 @@ class LogicApp:
 
         # 2. Busca de Cabeçalho Inteligente
         header_idx = None
-        # ADICIONEI "NOTAFISCAL" (junto) e "CTRC" nesta lista para garantir que ele ache a linha certa
         keywords_header = [
             "N.FISCAL", "NFISCAL", "NOTA FISCAL", "NR.NOTA", "N. NOTA",
             "NR_NFE", "NOTA FISCAL", "DOC.", "DOCUMENTO",
@@ -449,11 +448,10 @@ class LogicApp:
             df.columns = df.iloc[header_idx]
             df = df.iloc[header_idx + 1:].reset_index(drop=True)
 
-        # LIMPEZA EXTRA DOS NOMES DAS COLUNAS (Remove aspas e sujeira do inicio do arquivo)
+        # Limpeza dos nomes das colunas
         df.columns = [str(c).upper().strip().replace('"', '').replace("'", "") for c in df.columns]
 
         # 3. Identificação de Colunas
-        # PRIORIDADE 1: Palavras fortes (incluindo agora NOTAFISCAL tudo junto)
         col_nf = next(
             (c for c in df.columns if any(x in c for x in [
                 "N.FISCAL", "NFISCAL", "NOTA FISCAL", "NR.NOTA",
@@ -462,7 +460,6 @@ class LogicApp:
             None
         )
 
-        # PRIORIDADE 2: Se não achou nota fiscal explicita, tenta achar por Documento
         if not col_nf:
             col_nf = next(
                 (c for c in df.columns if "DOC" in c or "DOCUMENTO" in c),
@@ -470,7 +467,6 @@ class LogicApp:
             )
 
         col_prev = next((c for c in df.columns if "PREV" in c), None)
-        # Pega entrega, mas garante que não é a de previsão
         col_data = next((c for c in df.columns if "ENTREGA" in c and "PREV" not in c), None)
 
         if not col_data:
@@ -478,7 +474,6 @@ class LogicApp:
 
         if not col_nf:
             cols_encontradas = ", ".join(list(df.columns))
-            # Mostra as colunas no erro para ajudar a diagnosticar
             raise Exception(f"Coluna de Nota Fiscal não encontrada.\nColunas no arquivo: [{cols_encontradas}]")
 
         df_final = pd.DataFrame()
@@ -502,12 +497,30 @@ class LogicApp:
             except:
                 return ""
 
-        df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
-        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(local_fmt_dt) if col_prev else ""
-        df_final["Data Entrega"] = df[col_data].apply(local_fmt_dt) if col_data else ""
+        # --- AQUI ESTÁ A CORREÇÃO DA LÓGICA ---
 
+        # 1. Prepara a Nota Fiscal
+        df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
+
+        # 2. Extrai as datas separadamente primeiro
+        series_prev = df[col_prev].apply(local_fmt_dt) if col_prev else pd.Series([""] * len(df))
+        series_ent = df[col_data].apply(local_fmt_dt) if col_data else pd.Series([""] * len(df))
+
+        # 3. Atribui a Data de Entrega (ESTRITA: Só recebe dados de entrega real)
+        df_final["Data Entrega"] = series_ent
+
+        # 4. Atribui a Previsão com a lógica de Backup:
+        # Começa com os dados da coluna de previsão
+        df_final["Data de Previsão de Entrega"] = series_prev
+
+        # REGRA: Onde a Previsão for VAZIA e a Entrega TIVER DADOS, copia a Entrega para a Previsão
+        mask_sem_prev = df_final["Data de Previsão de Entrega"] == ""
+        df_final.loc[mask_sem_prev, "Data de Previsão de Entrega"] = df_final.loc[mask_sem_prev, "Data Entrega"]
+
+        # Filtros finais
         df_final = df_final[df_final["Nr. Doc."].astype(bool)]
         df_final = df_final[df_final["Nr. Doc."] != "000000"]
+
         return df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]]
 
     def _limpar_tnt_smart(self):
