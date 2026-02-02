@@ -186,12 +186,18 @@ class LogicApp:
 
         if "EXCELLENCE" in nome_arq: return "TXT_EXCELLENCE"
         if "LT" in nome_arq or "DONIZETE" in nome_arq: return "LT"
-        if "AGE" in nome_arq or "MH" in nome_arq: return "AGE"
+
+        # --- CORREÇÃO AQUI: ALFA TEM PRIORIDADE SOBRE MH ---
         if "ALFA" in nome_arq: return "ALFA"
+
+        # Só verifica MH se não for ALFA
+        if "AGE" in nome_arq or "MH" in nome_arq: return "AGE"
+
         if "TNT" in nome_arq: return "TNT"
 
         if not self.verificar_libs(): return "AGUARDANDO_LIBS"
 
+        # ... (O restante da função de leitura de conteúdo continua igual abaixo) ...
         content_upper = ""
         try:
             if path.lower().endswith(('.xls', '.xlsx')):
@@ -213,6 +219,8 @@ class LogicApp:
             if not content_upper: return "ERRO_LEITURA"
 
             if "EXCELLENCE" in content_upper and "NFISCAL" in content_upper: return "TXT_EXCELLENCE"
+
+            # Verificação de conteúdo também prioriza ALFA
             if "NRO.DOC" in content_upper: return "ALFA"
 
             tem_tnt = "NOTA" in content_upper and ("SERIE" in content_upper or "SÉRIE" in content_upper)
