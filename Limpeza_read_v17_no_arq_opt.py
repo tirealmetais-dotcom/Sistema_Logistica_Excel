@@ -30,7 +30,7 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), "logistica_seq_config.txt")
 class LogicApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Organizador Logístico Pro v23.27")
+        self.root.title("Organizador Logístico Pro v25.00")
         self.root.geometry("1100x750")
         self.root.configure(bg=COLORS["secondary"])
 
@@ -60,7 +60,7 @@ class LogicApp:
         header_frame.pack_propagate(False)
         tk.Label(header_frame, text="ORGANIZADOR DE TRANSPORTES", bg=COLORS["primary"], fg=COLORS["text_light"],
                  font=("Segoe UI", 18, "bold")).pack(side="left", padx=20, pady=20)
-        tk.Label(header_frame, text="v23.27 Lista Cargas", bg=COLORS["primary"], fg="#95A5A6",
+        tk.Label(header_frame, text="v25.00 Final", bg=COLORS["primary"], fg="#95A5A6",
                  font=("Segoe UI", 10)).pack(side="right", padx=20, pady=25)
 
         # --- ÁREA DE CONTROLE ---
@@ -141,8 +141,8 @@ class LogicApp:
         global pd
         try:
             self.root.after(0, lambda: self.lbl_status.config(text=" Carregando núcleo de dados..."))
-            import pandas as pandas_lib  # Importa para variavel local
-            pd = pandas_lib  # Atribui a global
+            import pandas as pandas_lib
+            pd = pandas_lib
             self.libs_carregadas = True
             self.root.after(0, lambda: self.lbl_status.config(text=" Pronto."))
         except Exception as e:
@@ -154,58 +154,101 @@ class LogicApp:
             return False
         return True
 
+    # >>> FILTROS GLOBAIS <<<
+    def _filtrar_valores_zerados(self, df_origem, df_destino):
+        try:
+            col_valor = next(
+                (c for c in df_origem.columns if
+                 any(x in str(c).upper() for x in ["VALOR", "VLR", "VR", "TOTAL", "MERCADORIA", "AMOUNT"])),
+                None
+            )
+            if not col_valor: return df_destino
+
+            def clean_money(val):
+                if pd.isna(val) or str(val).strip() == '': return 0.0
+                try:
+                    s = str(val).strip()
+                    s = re.sub(r'[^\d,]', '', s)
+                    s = s.replace(',', '.')
+                    return float(s)
+                except:
+                    return 0.0
+
+            valores_limpos = df_origem[col_valor].apply(clean_money)
+            if len(valores_limpos) == len(df_destino):
+                return df_destino[valores_limpos.values > 0]
+            else:
+                return df_destino
+        except Exception as e:
+            print(f"Aviso filtro valor: {e}")
+            return df_destino
+
+    def _filtrar_linhas_sem_data(self, df):
+        try:
+            df = df.fillna("")
+            mask_tem_prev = df["Data de Previsão de Entrega"].astype(str).str.strip() != ""
+            mask_tem_ent = df["Data Entrega"].astype(str).str.strip() != ""
+            df_final = df[mask_tem_prev | mask_tem_ent].copy()
+            return df_final
+        except Exception as e:
+            print(f"Aviso filtro datas: {e}")
+            return df
+
+    # >>> LEITURA INTELIGENTE (CORRIGIDA: HEADER=NONE) <<<
     def ler_arquivo_inteligente(self):
         try:
             try:
                 xls = pd.ExcelFile(self.file_path)
             except:
-                return pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python')
-            if len(xls.sheet_names) >= 4:
-                try:
-                    df = pd.read_excel(self.file_path, sheet_name=3)
-                    colunas_str = " ".join([str(c).upper() for c in df.columns])
-                    if "CTRC" in colunas_str or "N.FISCAL" in colunas_str or "NFISCAL" in colunas_str: return df
-                except:
-                    pass
+                # Se não for Excel, tenta CSV
+                return pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python', header=None)
+
+            # Scanner de Abas
             for sheet in xls.sheet_names:
-                df = pd.read_excel(self.file_path, sheet_name=sheet)
-                colunas_str = " ".join([str(c).upper() for c in df.columns])
-                if "CTRC" in colunas_str and ("N.FISCAL" in colunas_str or "NFISCAL" in colunas_str): return df
-            return pd.read_excel(self.file_path, sheet_name=0)
+                try:
+                    # Lê 20 linhas para verificar se é a aba certa
+                    df_check = pd.read_excel(self.file_path, sheet_name=sheet, nrows=20, header=None)
+
+                    texto_completo = df_check.to_string().upper()
+
+                    # Procura palavras-chave de cabeçalho
+                    if "N.FISCAL" in texto_completo or "NFISCAL" in texto_completo or "NOTA FISCAL" in texto_completo or "DESTINATARIO" in texto_completo:
+                        # ACHOU! Retorna com header=None para não perder a primeira linha
+                        return pd.read_excel(self.file_path, sheet_name=sheet, header=None)
+                except:
+                    continue
+
+            # Fallback
+            return pd.read_excel(self.file_path, sheet_name=0, header=None)
+
         except Exception as e:
             try:
-                return pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python')
+                return pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python', header=None)
             except:
                 raise Exception(f"Erro Crítico na leitura: {e}")
 
     def identificar_layout(self, path):
         nome_arq = os.path.basename(path).upper()
 
-        # >>> NOVO: Identificação por nome do arquivo <<<
         if "LISTA" in nome_arq and "CARGAS" in nome_arq: return "LISTA_CARGAS"
-
         if "EXCELLENCE" in nome_arq: return "TXT_EXCELLENCE"
         if "LT" in nome_arq or "DONIZETE" in nome_arq: return "LT"
 
-        # --- CORREÇÃO AQUI: ALFA TEM PRIORIDADE SOBRE MH ---
         if "ALFA" in nome_arq: return "ALFA"
-
-        # Só verifica MH se não for ALFA
         if "AGE" in nome_arq or "MH" in nome_arq: return "AGE"
-
         if "TNT" in nome_arq: return "TNT"
 
         if not self.verificar_libs(): return "AGUARDANDO_LIBS"
 
-        # ... (O restante da função de leitura de conteúdo continua igual abaixo) ...
         content_upper = ""
         try:
             if path.lower().endswith(('.xls', '.xlsx')):
                 try:
                     xls = pd.ExcelFile(path)
-                    for sheet in xls.sheet_names[:3]:
+                    for sheet in xls.sheet_names:
                         df_temp = pd.read_excel(xls, sheet_name=sheet, nrows=20, header=None)
                         content_upper += df_temp.to_string().upper() + " "
+                        if "N.FISCAL" in content_upper or "CTRC" in content_upper: break
                 except:
                     pass
 
@@ -219,22 +262,17 @@ class LogicApp:
             if not content_upper: return "ERRO_LEITURA"
 
             if "EXCELLENCE" in content_upper and "NFISCAL" in content_upper: return "TXT_EXCELLENCE"
-
-            # Verificação de conteúdo também prioriza ALFA
-            if "NRO.DOC" in content_upper: return "ALFA"
+            if "NRO.DOC" in content_upper or "NRO DOC" in content_upper: return "ALFA"
 
             tem_tnt = "NOTA" in content_upper and ("SERIE" in content_upper or "SÉRIE" in content_upper)
             if tem_tnt or "FIL. ORIGEM" in content_upper: return "TNT"
 
             tem_ctrc = "CTRC" in content_upper
             tem_nf = (
-                    "N.FISCAL" in content_upper or "NFISCAL" in content_upper or "NOTAFISCAL" in content_upper or "NR_NFE" in content_upper)
+                        "N.FISCAL" in content_upper or "NFISCAL" in content_upper or "NOTAFISCAL" in content_upper or "NR_NFE" in content_upper)
 
             if "DON" in content_upper and tem_nf: return "LT"
-
-            tem_datas = "PREV" in content_upper and "ENTR" in content_upper
-            tem_nf = ("NOTA FISCAL" in content_upper)
-            if (tem_ctrc and tem_nf) or (tem_datas and tem_nf): return "AGE"
+            if (tem_ctrc and tem_nf): return "AGE"
 
             return "DESCONHECIDO"
         except Exception as e:
@@ -270,10 +308,10 @@ class LogicApp:
         elif self.layout_detectado == "LT":
             self.configurar_status("LT (Donizete)", "📑", COLORS["accent_purple"])
         elif self.layout_detectado == "AGE":
-            self.configurar_status("AGE / MH Logística", "📝", "#04b0e4")
+            self.configurar_status("AGE / MH / Universal", "📝", "#04b0e4")
         elif self.layout_detectado == "TXT_EXCELLENCE":
             self.configurar_status("Excellence (Texto)", "📄", "#2C3E50")
-        elif self.layout_detectado == "LISTA_CARGAS":  # >>> NOVO STATUS
+        elif self.layout_detectado == "LISTA_CARGAS":
             self.configurar_status("Lista de Cargas", "📋", COLORS["accent_teal"])
         else:
             self.lbl_detect_text.config(text=f"Desconhecido ({self.layout_detectado})", fg="red")
@@ -304,23 +342,30 @@ class LogicApp:
                 df_limpo = self._limpar_mh_smart()
             elif self.layout_detectado == "TXT_EXCELLENCE":
                 df_limpo = self._limpar_txt_excellence()
-            elif self.layout_detectado == "LISTA_CARGAS":  # >>> NOVA CHAMADA
+            elif self.layout_detectado == "LISTA_CARGAS":
                 df_limpo = self._limpar_lista_cargas()
 
             if df_limpo is not None and not df_limpo.empty:
+                # Aplica o filtro de datas vazias no final
+                df_limpo = self._filtrar_linhas_sem_data(df_limpo)
+
+                if df_limpo.empty:
+                    self.lbl_status.config(text="Vazio pós-filtro.")
+                    messagebox.showwarning("Aviso", "Notas encontradas, mas nenhuma possui data válida.")
+                    return
+
                 df_limpo.reset_index(drop=True, inplace=True)
                 df_limpo.insert(0, "ITEM", range(1, len(df_limpo) + 1))
                 self.df_preview = df_limpo
                 self.atualizar_tabela(df_limpo)
 
                 self.btn_save_text.set(self.get_texto_botao_salvar())
-
                 self.btn_save.config(state="normal", bg=COLORS["accent_green"])
                 self.lbl_status.config(text=f"Sucesso! {len(df_limpo)} linhas prontas.")
                 messagebox.showinfo("Processado", f"{len(df_limpo)} linhas extraídas com sucesso.")
             else:
                 self.lbl_status.config(text="Vazio.")
-                messagebox.showwarning("Aviso", "Nenhum dado válido encontrado.")
+                messagebox.showwarning("Aviso", "Nenhum dado válido encontrado (verifique filtros de valor/data).")
         except Exception as ex:
             self.lbl_status.config(text="Erro.")
             messagebox.showerror("Erro Detalhado", f"Ocorreu um erro no processamento:\n{str(ex)}")
@@ -347,11 +392,8 @@ class LogicApp:
     def fmt_dt(self, val):
         if pd.isna(val) or str(val).strip() == '': return ""
         try:
-            # Tenta múltiplos formatos comuns em sistemas brasileiros
             s = str(val).strip()
-            # Remove horas se estiver no formato Excel 'YYYY-MM-DD HH:MM:SS'
             if " " in s: s = s.split(" ")[0]
-
             for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"):
                 try:
                     dt = datetime.strptime(s, fmt)
@@ -362,28 +404,25 @@ class LogicApp:
         except:
             return ""
 
-    # >>> NOVA FUNÇÃO DE LIMPEZA PARA O SEU ARQUIVO <<<
+    # --- FUNÇÕES DE LIMPEZA ---
+
     def _limpar_lista_cargas(self):
         try:
-            # Tenta ler como CSV flexível (detecta separador automaticamente)
             df = pd.read_csv(self.file_path, sep=None, engine='python', encoding='latin1')
         except:
-            # Se falhar, tenta ler como Excel padrão
             try:
                 df = pd.read_excel(self.file_path)
             except Exception as e:
                 raise Exception(f"Não foi possível ler o arquivo Lista Cargas: {e}")
 
-        # Padroniza nomes das colunas (tudo maiúsculo e sem espaços nas pontas)
         df.columns = [str(c).upper().strip() for c in df.columns]
 
-        # Identifica colunas chaves baseadas em palavras comuns
-        col_nota = next((c for c in df.columns if any(x in c for x in ['NOTA', 'NOTA_FISCAL', 'NF', 'DOCUMENTO', 'NR_NOTA'])), None)
+        col_nota = next(
+            (c for c in df.columns if any(x in c for x in ['NOTA', 'NOTA_FISCAL', 'NF', 'DOCUMENTO', 'NR_NOTA'])), None)
         col_prev = next((c for c in df.columns if 'PREV' in c), None)
-        # Pega coluna de entrega que NÃO seja a previsão
         col_ent = next((c for c in df.columns if 'ENTREGA' in c and 'PREV' not in c), None)
 
-        if not col_ent:  # Tenta procurar por DATA_REALIZADA ou BAIXA se não achar ENTREGA
+        if not col_ent:
             col_ent = next((c for c in df.columns if any(x in c for x in ['REALIZ', 'BAIXA'])), None)
 
         if not col_nota:
@@ -395,53 +434,40 @@ class LogicApp:
             s = str(val).strip()
             if not s or s.lower() == 'nan': return ""
             if s.endswith('.0'): s = s[:-2]
-            # Remove tudo que não for dígito
             s_numeros = re.sub(r'\D', '', s)
             if s_numeros:
-                return s_numeros.zfill(6)[-6:]  # Pega os ultimos 6 digitos
+                return s_numeros.zfill(6)[-6:]
             return ""
 
-        # Extração
         df_final["Nr. Doc."] = df[col_nota].apply(clean_nf_generic)
+        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt) if col_prev else ""
+        df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt) if col_ent else ""
 
-        if col_prev:
-            df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt)
-        else:
-            df_final["Data de Previsão de Entrega"] = ""
-
-        if col_ent:
-            df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt)
-        else:
-            df_final["Data Entrega"] = ""
-
-        # Filtros de validade
-        df_final = df_final[df_final["Nr. Doc."].astype(bool)]  # Remove vazios
+        df_final = df_final[df_final["Nr. Doc."].astype(bool)]
         df_final = df_final[df_final["Nr. Doc."] != "000000"]
 
-        return df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]]
+        return self._filtrar_valores_zerados(df, df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
 
+    # >>> FUNÇÃO MH COM RESGATE DE LINHA <<<
     def _limpar_mh_smart(self):
         df = self.ler_arquivo_inteligente()
 
-        # 1. Leitura Robusta
         if len(df.columns) < 2:
             try:
-                # Tenta ler com separador automático ou ponto e vírgula (comum no seu arquivo novo)
-                df = pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python')
+                df = pd.read_csv(self.file_path, sep=None, encoding='latin1', engine='python', header=None)
             except:
                 pass
 
-        # 2. Busca de Cabeçalho Inteligente (HÍBRIDA)
         header_idx = None
         keywords_header = [
             "N.FISCAL", "NFISCAL", "NOTA FISCAL", "NR.NOTA", "N. NOTA",
             "NR_NFE", "NOTA FISCAL", "DOC.", "DOCUMENTO",
             "NOTAFISCAL", "CTRC", "REMETENTE", "DESTINATARIO",
             "NRO.DOC", "NRO DOC", "DT.ENTREGA", "DT.EMTREGA",
-            "NUMERO DOCUMENTO", "NÚMERO DOCUMENTO"  # <--- ADICIONADO PARA O SEU ARQUIVO NOVO
+            "NUMERO DOCUMENTO", "NÚMERO DOCUMENTO"
         ]
 
-        # Busca nas primeiras 50 linhas
+        # Busca header na tabela bruta
         for i, row in df.head(50).iterrows():
             row_str = " ".join([str(val).upper() for val in row.values])
             if any(k in row_str for k in keywords_header):
@@ -449,21 +475,54 @@ class LogicApp:
                 break
 
         if header_idx is not None:
-            df.columns = df.iloc[header_idx]
-            df = df.iloc[header_idx + 1:].reset_index(drop=True)
+            # Pega a linha bruta do cabeçalho
+            raw_header = df.iloc[header_idx]
 
-        # LIMPEZA DE COLUNAS
+            clean_headers = []
+            hidden_row_data = []
+            has_hidden_data = False
+
+            # >>> DESMESCLAR: Separa "Titulo" de "Dado" que estão na mesma celula <<<
+            for val in raw_header:
+                s = str(val).strip()
+
+                # Se tiver ENTER, corta!
+                if '\n' in s:
+                    parts = s.rsplit('\n', 1)  # Separa pelo último Enter
+                    clean_headers.append(parts[0].strip())  # Título
+                    hidden_row_data.append(parts[1].strip())  # Dado da linha 1
+                    has_hidden_data = True
+                elif '\r' in s:
+                    parts = s.rsplit('\r', 1)
+                    clean_headers.append(parts[0].strip())
+                    hidden_row_data.append(parts[1].strip())
+                    has_hidden_data = True
+                else:
+                    clean_headers.append(s)
+                    hidden_row_data.append(None)
+
+            # Aplica nomes
+            df.columns = clean_headers
+
+            # Pega o resto dos dados
+            df_rest = df.iloc[header_idx + 1:].copy()
+
+            # Se achou dados escondidos, adiciona eles de volta!
+            if has_hidden_data:
+                df_hidden = pd.DataFrame([hidden_row_data], columns=clean_headers)
+                df = pd.concat([df_hidden, df_rest], ignore_index=True)
+            else:
+                df = df_rest.reset_index(drop=True)
+
         new_cols = []
         for c in df.columns:
             s = str(c).upper().strip()
+            # Limpeza de segurança extra
             s = s.replace('"', '').replace("'", "").replace('.', '')
             s = s.replace('Ï»¿', '').replace('ï»¿', '')
             new_cols.append(s)
         df.columns = new_cols
 
-        # 3. Identificação de Colunas
-
-        # Busca Nota Fiscal - LISTA AUMENTADA
         col_nf = next(
             (c for c in df.columns if any(x in c for x in [
                 "NFISCAL", "NOTAFISCAL", "NRNOTA", "NNOTA",
@@ -472,21 +531,15 @@ class LogicApp:
             None
         )
 
-        # Fallback para Documento genérico
         if not col_nf:
-            col_nf = next(
-                (c for c in df.columns if "DOCUMENTO" in c or "DOC" in c),
-                None
-            )
+            col_nf = next((c for c in df.columns if "DOCUMENTO" in c or "DOC" in c), None)
 
-        # Busca Previsão
         col_prev = next((c for c in df.columns if "PREV" in c), None)
-
-        # Busca Entrega
         col_data = next((c for c in df.columns if ("ENTREGA" in c or "EMTREGA" in c) and "PREV" not in c), None)
 
         if not col_data:
-            col_data = next((c for c in df.columns if "DATA" in c and ("BAIXA" in c or "REALIZ" in c)), None)
+            col_data = next((c for c in df.columns if "DATA" in c and (
+                        "BAIXA" in c or "REALIZ" in c or "ULT" in c or "ÚLT" in c or "OCORR" in c)), None)
 
         if not col_nf:
             cols_encontradas = ", ".join(list(df.columns))
@@ -496,25 +549,27 @@ class LogicApp:
 
         def clean_nf(val):
             s = str(val).strip()
-            if not s or s.lower() == 'nan': return ""
+            if not s or s.lower() == 'nan' or s == 'None': return ""
             if s.endswith('.0'): s = s[:-2]
             s_numeros = re.sub(r'\D', '', s)
-            if s_numeros:
-                return s_numeros.zfill(6)[-6:]
+            if s_numeros: return s_numeros.zfill(6)[-6:]
             return ""
 
+        # Função Data (Sem Warning)
         def local_fmt_dt(val):
-            if pd.isna(val) or str(val).strip() == '': return ""
+            if pd.isna(val) or str(val).strip() == '' or str(val).lower() == 'none': return ""
             try:
-                val_str = str(val).split(' ')[0]
-                dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-                if pd.notna(dt):
-                    return dt.strftime("%d/%m/%Y 00:00")
+                val_str = str(val).strip().split(' ')[0]
+                if len(val_str) >= 4 and val_str[:4].isdigit() and '-' in val_str:
+                    dt = pd.to_datetime(val_str, format='%Y-%m-%d', errors='coerce')
+                else:
+                    dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
+
+                if pd.notna(dt): return dt.strftime("%d/%m/%Y 00:00")
                 return ""
             except:
                 return ""
 
-        # --- PREENCHIMENTO ---
         df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
 
         series_prev = df[col_prev].apply(local_fmt_dt) if col_prev else pd.Series([""] * len(df))
@@ -525,17 +580,14 @@ class LogicApp:
 
         mask_sem_prev = df_final["Data de Previsão de Entrega"] == ""
         mask_com_ent = df_final["Data Entrega"] != ""
-
         df_final.loc[mask_sem_prev & mask_com_ent, "Data de Previsão de Entrega"] = df_final.loc[
             mask_sem_prev & mask_com_ent, "Data Entrega"]
 
         df_final = df_final[df_final["Nr. Doc."].astype(bool)]
         df_final = df_final[df_final["Nr. Doc."] != "000000"]
-
-        # Filtro extra para cabeçalhos repetidos no meio
         df_final = df_final[~df_final["Nr. Doc."].str.upper().isin(["NRODOC", "NUMERODOCUMENTO"])]
 
-        return df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]]
+        return self._filtrar_valores_zerados(df, df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
 
     def _limpar_tnt_smart(self):
         try:
@@ -581,7 +633,9 @@ class LogicApp:
         df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt) if col_ent else ""
         df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt) if col_prev else ""
         df_final = df_final[df_final["Nr. Doc."].astype(bool)]
-        return df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]].fillna("")
+
+        return self._filtrar_valores_zerados(df, df_final[
+            ["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]].fillna(""))
 
     def _limpar_txt_excellence(self):
         with open(self.file_path, 'r', encoding='latin1') as f:
@@ -633,7 +687,9 @@ class LogicApp:
             lambda x: clean(x).zfill(6) if clean(x).isdigit() else clean(x))
         df_final["Data de Previsão de Entrega"] = df_final["Data Entrega"].apply(self.fmt_dt)
         df_final["Data Entrega"] = df_final["Data Entrega"].apply(self.fmt_dt)
-        return df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]]
+
+        return self._filtrar_valores_zerados(df_dados,
+                                             df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
 
     def get_proximo_numero(self):
         try:
