@@ -30,7 +30,7 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), "logistica_seq_config.txt")
 class LogicApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Organizador Logístico Pro v25.00")
+        self.root.title("Organizador Logístico Pro v25.04")
         self.root.geometry("1100x750")
         self.root.configure(bg=COLORS["secondary"])
 
@@ -60,7 +60,7 @@ class LogicApp:
         header_frame.pack_propagate(False)
         tk.Label(header_frame, text="ORGANIZADOR DE TRANSPORTES", bg=COLORS["primary"], fg=COLORS["text_light"],
                  font=("Segoe UI", 18, "bold")).pack(side="left", padx=20, pady=20)
-        tk.Label(header_frame, text="v25.00 Final", bg=COLORS["primary"], fg="#95A5A6",
+        tk.Label(header_frame, text="v25.04 Final", bg=COLORS["primary"], fg="#95A5A6",
                  font=("Segoe UI", 10)).pack(side="right", padx=20, pady=25)
 
         # --- ÁREA DE CONTROLE ---
@@ -234,6 +234,8 @@ class LogicApp:
         if "EXCELLENCE" in nome_arq: return "TXT_EXCELLENCE"
         if "LT" in nome_arq or "DONIZETE" in nome_arq: return "LT"
 
+        if "SOLISTICA" in nome_arq: return "SOLISTICA"
+
         if "ALFA" in nome_arq: return "ALFA"
         if "AGE" in nome_arq or "MH" in nome_arq: return "AGE"
         if "TNT" in nome_arq: return "TNT"
@@ -263,6 +265,8 @@ class LogicApp:
 
             if "EXCELLENCE" in content_upper and "NFISCAL" in content_upper: return "TXT_EXCELLENCE"
             if "NRO.DOC" in content_upper or "NRO DOC" in content_upper: return "ALFA"
+
+            if "DATA PREVISÃO RECALCULADA" in content_upper or ("SOLISTICA" in content_upper): return "SOLISTICA"
 
             tem_tnt = "NOTA" in content_upper and ("SERIE" in content_upper or "SÉRIE" in content_upper)
             if tem_tnt or "FIL. ORIGEM" in content_upper: return "TNT"
@@ -313,6 +317,8 @@ class LogicApp:
             self.configurar_status("Excellence (Texto)", "📄", "#2C3E50")
         elif self.layout_detectado == "LISTA_CARGAS":
             self.configurar_status("Lista de Cargas", "📋", COLORS["accent_teal"])
+        elif self.layout_detectado == "SOLISTICA":
+            self.configurar_status("Solistica", "☀️", "#F1C40F")
         else:
             self.lbl_detect_text.config(text=f"Desconhecido ({self.layout_detectado})", fg="red")
             self.lbl_detect_icon.config(text="❌", fg="red")
@@ -344,6 +350,8 @@ class LogicApp:
                 df_limpo = self._limpar_txt_excellence()
             elif self.layout_detectado == "LISTA_CARGAS":
                 df_limpo = self._limpar_lista_cargas()
+            elif self.layout_detectado == "SOLISTICA":
+                df_limpo = self._limpar_solistica()
 
             if df_limpo is not None and not df_limpo.empty:
                 # Aplica o filtro de datas vazias no final
@@ -690,6 +698,58 @@ class LogicApp:
 
         return self._filtrar_valores_zerados(df_dados,
                                              df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
+
+    def _limpar_solistica(self):
+        try:
+            # Tenta ler Excel ou CSV
+            try:
+                df = pd.read_excel(self.file_path)
+            except:
+                df = pd.read_csv(self.file_path, sep=None, engine='python', encoding='latin1')
+        except Exception as e:
+            raise Exception(f"Erro ao ler Solistica: {e}")
+
+        # Padroniza colunas para maiúsculo
+        df.columns = [str(c).upper().strip() for c in df.columns]
+
+        # Mapeamento direto (O arquivo Solistica é bem organizado)
+        # Nota Fiscal -> "NOTA FISCAL"
+        # Previsão -> "DATA PREVISÃO"
+        # Entrega -> "DATA ENTREGA"
+
+        col_nf = "NOTA FISCAL"
+        col_prev = "DATA PREVISÃO"
+        col_ent = "DATA ENTREGA"
+
+        # Verificação básica se as colunas existem
+        if col_nf not in df.columns:
+            raise Exception("Layout Solistica mudou? Não achei a coluna 'NOTA FISCAL'.")
+
+        df_final = pd.DataFrame()
+
+        # Limpeza do número da nota
+        def clean_nf(val):
+            s = str(val).strip()
+            if not s or s.lower() == 'nan': return ""
+            if s.endswith('.0'): s = s[:-2]
+            s_numeros = re.sub(r'\D', '', s)
+            if s_numeros: return s_numeros.zfill(6)[-6:]
+            return ""
+
+        df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
+
+        # Datas
+        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt)
+        df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt)
+
+        # Remove vazios
+        df_final = df_final[df_final["Nr. Doc."].astype(bool)]
+        df_final = df_final[df_final["Nr. Doc."] != "000000"]
+
+        # Aplica o filtro global de valores zerados e datas vazias
+        df_final = self._filtrar_valores_zerados(df,
+                                                 df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
+        return df_final
 
     def get_proximo_numero(self):
         try:
