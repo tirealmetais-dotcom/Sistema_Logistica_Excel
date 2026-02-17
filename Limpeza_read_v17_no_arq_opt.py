@@ -15,8 +15,9 @@ COLORS = {
     "primary": "#2C3E50", "secondary": "#ECF0F1", "card_bg": "#FFFFFF",
     "text_dark": "#2C3E50", "text_light": "#FFFFFF", "accent_blue": "#3498DB",
     "accent_orange": "#E67E22", "accent_green": "#27AE60", "accent_red": "#E74C3C",
-    "accent_purple": "#8E44AD", "accent_teal": "#16A085"
+    "accent_purple": "#8E44AD", "accent_teal": "#16A085", "accent_yellow": "#F1C40F"
 }
+
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -30,7 +31,7 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), "logistica_seq_config.txt")
 class LogicApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Organizador Logístico Pro v25.04")
+        self.root.title("Organizador Logístico Pro v26.00")
         self.root.geometry("1100x750")
         self.root.configure(bg=COLORS["secondary"])
 
@@ -60,7 +61,7 @@ class LogicApp:
         header_frame.pack_propagate(False)
         tk.Label(header_frame, text="ORGANIZADOR DE TRANSPORTES", bg=COLORS["primary"], fg=COLORS["text_light"],
                  font=("Segoe UI", 18, "bold")).pack(side="left", padx=20, pady=20)
-        tk.Label(header_frame, text="v25.04 Final", bg=COLORS["primary"], fg="#95A5A6",
+        tk.Label(header_frame, text="v26.00 Final", bg=COLORS["primary"], fg="#95A5A6",
                  font=("Segoe UI", 10)).pack(side="right", padx=20, pady=25)
 
         # --- ÁREA DE CONTROLE ---
@@ -153,6 +154,38 @@ class LogicApp:
             messagebox.showinfo("Carregando", "O sistema está otimizando a inicialização.\nAguarde...")
             return False
         return True
+
+    # >>> HELPERS (NOVO) <<<
+    def _clean_nf(self, val, split_hifen=False):
+        """Limpa valores de Nota Fiscal/Documento para manter apenas os últimos 6 dígitos."""
+        s = str(val).strip()
+        if not s or s.lower() in ['nan', 'none', 'nat']: return ""
+        if s.endswith('.0'): s = s[:-2]
+        
+        # Tratamento especial para TNT (hífens) - Só aplica se solicitado
+        if split_hifen and '-' in s:
+             s = s.split('-')[0].strip()
+
+        s_numeros = re.sub(r'\D', '', s)
+        if s_numeros:
+            return s_numeros.zfill(6)[-6:]
+        return ""
+
+
+    def _fmt_dt_safe(self, val):
+        """Formata datas de forma robusta usando Pandas."""
+        if pd.isna(val) or str(val).strip() == '' or str(val).lower() in ['nan', 'none', 'nat']: return ""
+        try:
+            s = str(val).strip()
+            # Tenta converter direto (dayfirst=True para formato BR)
+            dt = pd.to_datetime(s, dayfirst=True, errors='coerce')
+            
+            if pd.notna(dt):
+                return dt.strftime("%d/%m/%Y 00:00")
+            return ""
+        except:
+            return ""
+
 
     # >>> FILTROS GLOBAIS <<<
     def _filtrar_valores_zerados(self, df_origem, df_destino):
@@ -278,10 +311,13 @@ class LogicApp:
             if "DON" in content_upper and tem_nf: return "LT"
             if (tem_ctrc and tem_nf): return "AGE"
 
-            return "DESCONHECIDO"
+            if (tem_ctrc and tem_nf): return "AGE"
+
+            return "GENERICO"
         except Exception as e:
             print(f"Erro ao identificar: {e}")
-            return "ERRO"
+            return "GENERICO"
+
 
     def selecionar_arquivo(self):
         filename = filedialog.askopenfilename(title="Selecione o arquivo",
@@ -305,28 +341,23 @@ class LogicApp:
         self._aplicar_layout_config()
 
     def _aplicar_layout_config(self):
-        if self.layout_detectado == "ALFA":
-            self.configurar_status("Alfa Transportes", "🚛", COLORS["accent_blue"])
-        elif self.layout_detectado == "TNT":
-            self.configurar_status("TNT Mercúrio", "📦", COLORS["accent_orange"])
-        elif self.layout_detectado == "LT":
-            self.configurar_status("LT (Donizete)", "📑", COLORS["accent_purple"])
-        elif self.layout_detectado == "AGE":
-            self.configurar_status("AGE / MH / Universal", "📝", "#04b0e4")
-        elif self.layout_detectado == "TXT_EXCELLENCE":
-            self.configurar_status("Excellence (Texto)", "📄", "#2C3E50")
-        elif self.layout_detectado == "LISTA_CARGAS":
-            self.configurar_status("Lista de Cargas", "📋", COLORS["accent_teal"])
-        elif self.layout_detectado == "SOLISTICA":
-            self.configurar_status("Solistica", "☀️", "#F1C40F")
+        # Lista de layouts VÁLIDOS que o sistema sabe processar
+        layouts_validos = ["ALFA", "TNT", "LT", "AGE", "TXT_EXCELLENCE", "LISTA_CARGAS", "SOLISTICA", "GENERICO"]
+
+        if self.layout_detectado in layouts_validos:
+            # Mensagem genérica para todos os layouts reconhecidos - Preserva lógica interna, mas esconde nome
+            self.configurar_status("Detectado", "✅", COLORS["accent_yellow"])
+            self.btn_process.config(state="normal", bg=COLORS["accent_yellow"])
+            self.btn_save.config(state="disabled", bg="#95A5A6")
+
         else:
-            self.lbl_detect_text.config(text=f"Desconhecido ({self.layout_detectado})", fg="red")
+            # Qualquer outra coisa que não seja um layout válido (Erro)
+            self.lbl_detect_text.config(text=f"Erro ({self.layout_detectado})", fg="red")
             self.lbl_detect_icon.config(text="❌", fg="red")
             self.btn_process.config(state="disabled", bg="#95A5A6");
             self.btn_save.config(state="disabled", bg="#95A5A6")
-            return
-        self.btn_process.config(state="normal");
-        self.btn_save.config(state="disabled", bg="#95A5A6")
+
+
 
     def configurar_status(self, texto, icone, cor):
         self.lbl_detect_text.config(text=f"Layout: {texto}", fg=cor)
@@ -344,14 +375,15 @@ class LogicApp:
                 df_limpo = self._limpar_alfa()
             elif self.layout_detectado == "TNT":
                 df_limpo = self._limpar_tnt_smart()
-            elif self.layout_detectado in ["LT", "AGE", "MH"]:
-                df_limpo = self._limpar_mh_smart()
+            elif self.layout_detectado in ["LT", "AGE", "MH", "GENERICO"]:
+                df_limpo = self._limpar_generico()
             elif self.layout_detectado == "TXT_EXCELLENCE":
                 df_limpo = self._limpar_txt_excellence()
             elif self.layout_detectado == "LISTA_CARGAS":
                 df_limpo = self._limpar_lista_cargas()
             elif self.layout_detectado == "SOLISTICA":
                 df_limpo = self._limpar_solistica()
+
 
             if df_limpo is not None and not df_limpo.empty:
                 # Aplica o filtro de datas vazias no final
@@ -397,20 +429,8 @@ class LogicApp:
             self.tree.insert("", "end", values=list(row[1]), tags=(tag,))
         self.lbl_status.config(text=f" Visualizando {len(df)} linhas.")
 
-    def fmt_dt(self, val):
-        if pd.isna(val) or str(val).strip() == '': return ""
-        try:
-            s = str(val).strip()
-            if " " in s: s = s.split(" ")[0]
-            for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d"):
-                try:
-                    dt = datetime.strptime(s, fmt)
-                    return dt.strftime("%d/%m/%Y 00:00")
-                except:
-                    continue
-            return ""
-        except:
-            return ""
+    # Removed old fmt_dt
+
 
     # --- FUNÇÕES DE LIMPEZA ---
 
@@ -438,26 +458,19 @@ class LogicApp:
 
         df_final = pd.DataFrame()
 
-        def clean_nf_generic(val):
-            s = str(val).strip()
-            if not s or s.lower() == 'nan': return ""
-            if s.endswith('.0'): s = s[:-2]
-            s_numeros = re.sub(r'\D', '', s)
-            if s_numeros:
-                return s_numeros.zfill(6)[-6:]
-            return ""
+        df_final["Nr. Doc."] = df[col_nota].apply(self._clean_nf)
+        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self._fmt_dt_safe) if col_prev else ""
+        df_final["Data Entrega"] = df[col_ent].apply(self._fmt_dt_safe) if col_ent else ""
 
-        df_final["Nr. Doc."] = df[col_nota].apply(clean_nf_generic)
-        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt) if col_prev else ""
-        df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt) if col_ent else ""
 
         df_final = df_final[df_final["Nr. Doc."].astype(bool)]
         df_final = df_final[df_final["Nr. Doc."] != "000000"]
 
         return self._filtrar_valores_zerados(df, df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
 
-    # >>> FUNÇÃO MH COM RESGATE DE LINHA <<<
-    def _limpar_mh_smart(self):
+    # >>> FUNÇÃO GENÉRICA/MH COM RESGATE DE LINHA <<<
+    def _limpar_generico(self):
+
         df = self.ler_arquivo_inteligente()
 
         if len(df.columns) < 2:
@@ -531,16 +544,23 @@ class LogicApp:
             new_cols.append(s)
         df.columns = new_cols
 
-        col_nf = next(
-            (c for c in df.columns if any(x in c for x in [
-                "NFISCAL", "NOTAFISCAL", "NRNOTA", "NNOTA",
-                "NRNFE", "NFE", "NRODOC", "NUMERODOCUMENTO", "NÚMERODOCUMENTO"
-            ])),
-            None
-        )
+        # Sistema de Prioridade para encontrar a Nota Fiscal
+        priority_groups = [
+            ["NOTA FISCAL", "NOTAFISCAL", "NFISCAL", "DANFE", "NFE", " NR NF", "NRNF", "NNOTA"],
+            ["NRNOTA", "N NOTA", "NUMERO NOTA", "NRNFE"],
+            ["DOCUMENTO", "DOC", "NRODOC", "NUMERODOCUMENTO", "NÚMERODOCUMENTO"]
+        ]
 
-        if not col_nf:
-            col_nf = next((c for c in df.columns if "DOCUMENTO" in c or "DOC" in c), None)
+
+        col_nf = None
+        for keywords in priority_groups:
+            # Tenta encontrar uma coluna que contenha algum termo deste grupo
+            # A verificação 'if k in c' checa se a palavra chave está contida no nome da coluna
+            found = next((c for c in df.columns if any(k in c for k in keywords)), None)
+            if found:
+                col_nf = found
+                break
+
 
         col_prev = next((c for c in df.columns if "PREV" in c), None)
         col_data = next((c for c in df.columns if ("ENTREGA" in c or "EMTREGA" in c) and "PREV" not in c), None)
@@ -555,36 +575,14 @@ class LogicApp:
 
         df_final = pd.DataFrame()
 
-        def clean_nf(val):
-            s = str(val).strip()
-            if not s or s.lower() == 'nan' or s == 'None': return ""
-            if s.endswith('.0'): s = s[:-2]
-            s_numeros = re.sub(r'\D', '', s)
-            if s_numeros: return s_numeros.zfill(6)[-6:]
-            return ""
+        df_final["Nr. Doc."] = df[col_nf].apply(self._clean_nf)
 
-        # Função Data (Sem Warning)
-        def local_fmt_dt(val):
-            if pd.isna(val) or str(val).strip() == '' or str(val).lower() == 'none': return ""
-            try:
-                val_str = str(val).strip().split(' ')[0]
-                if len(val_str) >= 4 and val_str[:4].isdigit() and '-' in val_str:
-                    dt = pd.to_datetime(val_str, format='%Y-%m-%d', errors='coerce')
-                else:
-                    dt = pd.to_datetime(val_str, dayfirst=True, errors='coerce')
-
-                if pd.notna(dt): return dt.strftime("%d/%m/%Y 00:00")
-                return ""
-            except:
-                return ""
-
-        df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
-
-        series_prev = df[col_prev].apply(local_fmt_dt) if col_prev else pd.Series([""] * len(df))
-        series_ent = df[col_data].apply(local_fmt_dt) if col_data else pd.Series([""] * len(df))
+        series_prev = df[col_prev].apply(self._fmt_dt_safe) if col_prev else pd.Series([""] * len(df))
+        series_ent = df[col_data].apply(self._fmt_dt_safe) if col_data else pd.Series([""] * len(df))
 
         df_final["Data Entrega"] = series_ent
         df_final["Data de Previsão de Entrega"] = series_prev
+
 
         mask_sem_prev = df_final["Data de Previsão de Entrega"] == ""
         mask_com_ent = df_final["Data Entrega"] != ""
@@ -626,20 +624,13 @@ class LogicApp:
             raise Exception(f"Coluna NOTA/SERIE não encontrada.")
         df_final = pd.DataFrame()
 
-        def clean(val):
-            s = str(val).strip()
-            if not s or s.lower() == 'nan': return ""
-            if s.endswith('.0'): s = s[:-2]
-            s = s.split('-')[0].strip()
-            s_numeros = re.sub(r'\D', '', s)
-            if s_numeros: return s_numeros.zfill(6)
-            return s
+        df_final["Nr. Doc."] = df[col_nota].apply(lambda x: self._clean_nf(x, split_hifen=True))
 
-        df_final["Nr. Doc."] = df[col_nota].apply(clean)
         col_ent = next((c for c in df.columns if "DATA" in c and "FINALIZA" in c), None)
         col_prev = next((c for c in df.columns if "PREVIS" in c), None)
-        df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt) if col_ent else ""
-        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt) if col_prev else ""
+        df_final["Data Entrega"] = df[col_ent].apply(self._fmt_dt_safe) if col_ent else ""
+        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self._fmt_dt_safe) if col_prev else ""
+
         df_final = df_final[df_final["Nr. Doc."].astype(bool)]
 
         return self._filtrar_valores_zerados(df, df_final[
@@ -657,9 +648,10 @@ class LogicApp:
                 nota, prev, ent = match.groups();
                 nota_final = nota.zfill(6)[-6:]
                 try:
-                    dt_prev = datetime.strptime(f"{prev}/{ano_atual}", "%d/%m/%Y").strftime("%d/%m/%Y 00:00")
-                    dt_ent = datetime.strptime(f"{ent}/{ano_atual}", "%d/%m/%Y").strftime("%d/%m/%Y 00:00")
+                    dt_prev = self._fmt_dt_safe(f"{prev}/{ano_atual}")
+                    dt_ent = self._fmt_dt_safe(f"{ent}/{ano_atual}")
                     dados.append([nota_final, dt_prev, dt_ent])
+
                 except:
                     continue
         return pd.DataFrame(dados, columns=["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"])
@@ -687,14 +679,10 @@ class LogicApp:
         df_final = df_final[df_final["Nr. Doc."].notna()]
         df_final = df_final[~df_final["Nr. Doc."].astype(str).str.contains("Nro.Doc")]
 
-        def clean(val):
-            s = str(val).strip();
-            return s[:-2] if s.endswith('.0') else s
+        df_final["Nr. Doc."] = df_final["Nr. Doc."].apply(self._clean_nf)
+        df_final["Data de Previsão de Entrega"] = df_final["Data Entrega"].apply(self._fmt_dt_safe)
+        df_final["Data Entrega"] = df_final["Data Entrega"].apply(self._fmt_dt_safe)
 
-        df_final["Nr. Doc."] = df_final["Nr. Doc."].apply(
-            lambda x: clean(x).zfill(6) if clean(x).isdigit() else clean(x))
-        df_final["Data de Previsão de Entrega"] = df_final["Data Entrega"].apply(self.fmt_dt)
-        df_final["Data Entrega"] = df_final["Data Entrega"].apply(self.fmt_dt)
 
         return self._filtrar_valores_zerados(df_dados,
                                              df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
@@ -728,19 +716,12 @@ class LogicApp:
         df_final = pd.DataFrame()
 
         # Limpeza do número da nota
-        def clean_nf(val):
-            s = str(val).strip()
-            if not s or s.lower() == 'nan': return ""
-            if s.endswith('.0'): s = s[:-2]
-            s_numeros = re.sub(r'\D', '', s)
-            if s_numeros: return s_numeros.zfill(6)[-6:]
-            return ""
-
-        df_final["Nr. Doc."] = df[col_nf].apply(clean_nf)
+        df_final["Nr. Doc."] = df[col_nf].apply(self._clean_nf)
 
         # Datas
-        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self.fmt_dt)
-        df_final["Data Entrega"] = df[col_ent].apply(self.fmt_dt)
+        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self._fmt_dt_safe)
+        df_final["Data Entrega"] = df[col_ent].apply(self._fmt_dt_safe)
+
 
         # Remove vazios
         df_final = df_final[df_final["Nr. Doc."].astype(bool)]
