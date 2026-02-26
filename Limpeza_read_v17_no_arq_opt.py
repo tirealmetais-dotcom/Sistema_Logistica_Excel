@@ -176,8 +176,18 @@ class LogicApp:
         """Formata datas de forma robusta usando Pandas."""
         if pd.isna(val) or str(val).strip() == '' or str(val).lower() in ['nan', 'none', 'nat']: return ""
         try:
+            # Se já for datetime/Timestamp (Excel nativo), formata direto sem re-parsear
+            if isinstance(val, (pd.Timestamp,)):
+                return val.strftime("%d/%m/%Y 00:00")
+            try:
+                from datetime import datetime as dt_class
+                if isinstance(val, dt_class):
+                    return val.strftime("%d/%m/%Y 00:00")
+            except:
+                pass
+
             s = str(val).strip()
-            # Tenta converter direto (dayfirst=True para formato BR)
+            # Tenta converter (dayfirst=True para formato BR em strings)
             dt = pd.to_datetime(s, dayfirst=True, errors='coerce')
             
             if pd.notna(dt):
@@ -482,10 +492,9 @@ class LogicApp:
         header_idx = None
         keywords_header = [
             "N.FISCAL", "NFISCAL", "NOTA FISCAL", "NR.NOTA", "N. NOTA",
-            "NR_NFE", "NOTA FISCAL", "DOC.", "DOCUMENTO",
-            "NOTAFISCAL", "CTRC", "REMETENTE", "DESTINATARIO",
-            "NRO.DOC", "NRO DOC", "DT.ENTREGA", "DT.EMTREGA",
-            "NUMERO DOCUMENTO", "NÚMERO DOCUMENTO"
+            "NR_NFE", "DOC.", "DOCUMENTO", "NOTAFISCAL",
+            "NRO.DOC", "NRO DOC", "NUMERO DOCUMENTO", "NÚMERO DOCUMENTO",
+            "DANFE"
         ]
 
         # Busca header na tabela bruta
