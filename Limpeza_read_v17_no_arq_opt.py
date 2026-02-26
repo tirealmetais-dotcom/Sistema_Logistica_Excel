@@ -31,7 +31,7 @@ CONFIG_FILE = os.path.join(os.path.expanduser("~"), "logistica_seq_config.txt")
 class LogicApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Organizador Logístico Pro v26.00")
+        self.root.title("Organizador Logístico Pro v26.01")
         self.root.geometry("1100x750")
         self.root.configure(bg=COLORS["secondary"])
 
@@ -61,7 +61,7 @@ class LogicApp:
         header_frame.pack_propagate(False)
         tk.Label(header_frame, text="ORGANIZADOR DE TRANSPORTES", bg=COLORS["primary"], fg=COLORS["text_light"],
                  font=("Segoe UI", 18, "bold")).pack(side="left", padx=20, pady=20)
-        tk.Label(header_frame, text="v26.00 Final", bg=COLORS["primary"], fg="#95A5A6",
+        tk.Label(header_frame, text="v26.01 Final", bg=COLORS["primary"], fg="#95A5A6",
                  font=("Segoe UI", 10)).pack(side="right", padx=20, pady=25)
 
         # --- ÁREA DE CONTROLE ---
