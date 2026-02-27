@@ -188,7 +188,10 @@ class LogicApp:
 
             s = str(val).strip()
             # Tenta converter (dayfirst=True para formato BR em strings)
-            dt = pd.to_datetime(s, dayfirst=True, errors='coerce')
+            if re.match(r'^\d{4}[-/]\d{2}[-/]\d{2}', s):
+                dt = pd.to_datetime(s, errors='coerce') # Format is YYYY-MM-DD, let Pandas handle it without dayfirst=True
+            else:
+                dt = pd.to_datetime(s, dayfirst=True, errors='coerce')
             
             if pd.notna(dt):
                 return dt.strftime("%d/%m/%Y 00:00")
@@ -670,8 +673,8 @@ class LogicApp:
             df = pd.read_csv(self.file_path, header=None, sep=',', encoding='latin1', engine='python')
         except:
             df = pd.read_excel(self.file_path, header=None)
-        cabecalho_idx = None;
-        colunas_map = {};
+        cabecalho_idx = None
+        colunas_map = {}
         colunas_busca = {"Nro.Doc": "Nro.Doc", "Dt.Emtrega": "Dt.Emtrega"}
         for idx, row in df.iterrows():
             row_str = [str(v).strip() for v in row.values]
@@ -680,13 +683,26 @@ class LogicApp:
                 for k, v in colunas_busca.items():
                     if k in row_str: colunas_map[v] = row_str.index(k)
                 break
+                
+        if cabecalho_idx is None:
+            colunas_busca_novo = {"nota_fiscal": "Nro.Doc", "entrega": "Dt.Emtrega"}
+            for idx, row in df.iterrows():
+                row_str = [str(v).strip().lower() for v in row.values]
+                if "nota_fiscal" in row_str and "entrega" in row_str:
+                    cabecalho_idx = idx
+                    for k, v in colunas_busca_novo.items():
+                        if k in row_str: colunas_map[v] = row_str.index(k)
+                    break
+
         if cabecalho_idx is None: raise Exception("Layout ALFA inválido.")
-        df_dados = df.iloc[cabecalho_idx + 1:].copy();
+        df_dados = df.iloc[cabecalho_idx + 1:].copy()
         df_final = pd.DataFrame()
         if "Nro.Doc" in colunas_map: df_final["Nr. Doc."] = df_dados.iloc[:, colunas_map["Nro.Doc"]]
         if "Dt.Emtrega" in colunas_map: df_final["Data Entrega"] = df_dados.iloc[:, colunas_map["Dt.Emtrega"]]
+        
         df_final = df_final[df_final["Nr. Doc."].notna()]
-        df_final = df_final[~df_final["Nr. Doc."].astype(str).str.contains("Nro.Doc")]
+        df_final = df_final[~df_final["Nr. Doc."].astype(str).str.contains("Nro.Doc", case=False)]
+        df_final = df_final[~df_final["Nr. Doc."].astype(str).str.contains("nota_fiscal", case=False)]
 
         df_final["Nr. Doc."] = df_final["Nr. Doc."].apply(self._clean_nf)
         df_final["Data de Previsão de Entrega"] = df_final["Data Entrega"].apply(self._fmt_dt_safe)
