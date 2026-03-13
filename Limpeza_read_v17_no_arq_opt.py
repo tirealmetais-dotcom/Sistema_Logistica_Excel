@@ -282,7 +282,18 @@ class LogicApp:
 
         if "SOLISTICA" in nome_arq: return "SOLISTICA"
 
-        if "ALFA" in nome_arq: return "ALFA"
+        if "ALFA" in nome_arq:
+            try:
+                # Verifica se não é o novo formato antes de assumir que é o antigo
+                if path.lower().endswith(('.xls', '.xlsx')):
+                    df_temp = pd.read_excel(path, nrows=5, header=None)
+                else:
+                    df_temp = pd.read_csv(path, sep=None, engine='python', nrows=5, header=None, encoding='latin1')
+                content = df_temp.to_string().upper()
+                if "SERIAL_CTE" in content and "NOTA_FISCAL" in content: return "NOVO_FORMATO"
+            except:
+                pass
+            return "ALFA"
         if "AGE" in nome_arq or "MH" in nome_arq: return "AGE"
         if "TNT" in nome_arq: return "TNT"
 
@@ -309,6 +320,7 @@ class LogicApp:
 
             if not content_upper: return "ERRO_LEITURA"
 
+            if "SERIAL_CTE" in content_upper and "NOTA_FISCAL" in content_upper: return "NOVO_FORMATO"
             if "EXCELLENCE" in content_upper and "NFISCAL" in content_upper: return "TXT_EXCELLENCE"
             if "NRO.DOC" in content_upper or "NRO DOC" in content_upper: return "ALFA"
 
@@ -355,7 +367,7 @@ class LogicApp:
 
     def _aplicar_layout_config(self):
         # Lista de layouts VÁLIDOS que o sistema sabe processar
-        layouts_validos = ["ALFA", "TNT", "LT", "AGE", "TXT_EXCELLENCE", "LISTA_CARGAS", "SOLISTICA", "GENERICO"]
+        layouts_validos = ["ALFA", "TNT", "LT", "AGE", "TXT_EXCELLENCE", "LISTA_CARGAS", "SOLISTICA", "GENERICO", "NOVO_FORMATO"]
 
         if self.layout_detectado in layouts_validos:
             # Mensagem genérica para todos os layouts reconhecidos - Preserva lógica interna, mas esconde nome
@@ -396,7 +408,8 @@ class LogicApp:
                 df_limpo = self._limpar_lista_cargas()
             elif self.layout_detectado == "SOLISTICA":
                 df_limpo = self._limpar_solistica()
-
+            elif self.layout_detectado == "NOVO_FORMATO":
+                df_limpo = self._limpar_novo_formato()
 
             if df_limpo is not None and not df_limpo.empty:
                 # Aplica o filtro de datas vazias no final
@@ -756,6 +769,37 @@ class LogicApp:
         df_final = self._filtrar_valores_zerados(df,
                                                  df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
         return df_final
+
+    def _limpar_novo_formato(self):
+        try:
+            try:
+                df = pd.read_excel(self.file_path, header=None)
+            except:
+                df = pd.read_csv(self.file_path, sep=None, engine='python', encoding='latin1', header=None)
+        except Exception as e:
+            raise Exception(f"Erro ao ler NOVO_FORMATO: {e}")
+
+        # Pega a primeira linha como cabeçalho
+        df.columns = [str(c).lower().strip() for c in df.iloc[0]]
+        df = df[1:].copy()
+
+        df_final = pd.DataFrame()
+
+        col_nf = "nota_fiscal"
+        col_prev = "data_previsao"
+        col_ent = "data_entrega"
+
+        if col_nf not in df.columns:
+            raise Exception("Layout NOVO_FORMATO inválido: Coluna 'nota_fiscal' não encontrada.")
+
+        df_final["Nr. Doc."] = df[col_nf].apply(self._clean_nf)
+        df_final["Data de Previsão de Entrega"] = df[col_prev].apply(self._fmt_dt_safe) if col_prev in df.columns else ""
+        df_final["Data Entrega"] = df[col_ent].apply(self._fmt_dt_safe) if col_ent in df.columns else ""
+
+        df_final = df_final[df_final["Nr. Doc."].astype(bool)]
+        df_final = df_final[df_final["Nr. Doc."] != "000000"]
+
+        return self._filtrar_valores_zerados(df, df_final[["Nr. Doc.", "Data de Previsão de Entrega", "Data Entrega"]])
 
     def get_proximo_numero(self):
         try:
